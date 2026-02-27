@@ -28,7 +28,7 @@ import {
 
 function getBreadcrumb(pathname: string): string {
   if (pathname === "/") return "工作台";
-  if (pathname === "/users") return "用户列表";
+  if (pathname === "/users") return "用户管理";
   return pathname;
 }
 

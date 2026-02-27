@@ -132,6 +132,16 @@
     }
 }
 
+[data-sidebar="menu-button"][data-active="true"] {
+  @apply bg-primary text-primary-foreground;
+}
+[data-sidebar="menu-button"][data-active="true"]:hover {
+  @apply bg-primary/90 text-primary-foreground;
+}
+[data-sidebar="menu-button"][data-active="true"] svg {
+  @apply text-primary-foreground;
+}
+
 @keyframes page-enter {
   from {
     opacity: 0;
