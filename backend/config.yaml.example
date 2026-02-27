@@ -1,0 +1,8 @@
+app:
+  env: development
+
+server:
+  addr: ":8080"
+
+database:
+  dsn: "host=localhost port=5432 user=postgres password=YOUR_PASSWORD dbname=postgres sslmode=disable"

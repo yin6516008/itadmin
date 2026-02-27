@@ -1,0 +1,32 @@
+# Dependencies
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+backend/bin/
+
+# Environment & config with secrets
+backend/config.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+*.out
+
+# Temporary files
+*.tmp
+*.bak

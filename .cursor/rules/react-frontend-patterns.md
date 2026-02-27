@@ -1,0 +1,918 @@
+---
+description: 基于 Vite + React + shadcn/ui 的中大型后台管理系统架构规范，包含目录结构、分层依赖、CRUD 模式、数据表格、权限控制等约定。
+globs: frontend/**
+alwaysApply: true
+---
+
+# React 后台管理系统前端规范
+
+基于 Vite + React + TypeScript + Tailwind CSS + shadcn/ui 构建的中大型后台管理系统架构与编码约定。需配合后端统一响应格式使用。
+
+---
+
+## 一、项目结构规范
+
+### 标准项目目录结构
+
+```text
+frontend/
+├── public/
+├── src/
+│   ├── main.tsx
+│   ├── App.tsx
+│   ├── global.css                 # Tailwind 指令 + 全局 CSS 变量
+│   ├── components/
+│   │   ├── ui/                    # shadcn/ui 生成的组件（勿手动修改）
+│   │   │   ├── button.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── table.tsx
+│   │   │   └── ...
+│   │   ├── shared/                # 全局业务通用组件
+│   │   │   ├── PageHeader.tsx     # 页面标题 + 操作按钮
+│   │   │   └── AuthGuard.tsx      # 路由权限守卫
+│   │   └── layouts/
+│   │       └── AdminLayout.tsx    # 后台主布局（Sidebar + Header + Content）
+│   ├── features/                  # 按业务领域组织
+│   │   └── user/
+│   │       ├── components/        # 该领域的业务组件
+│   │       ├── hooks/             # 该领域的自定义 hooks
+│   │       ├── types.ts           # 该领域的类型定义
+│   │       └── index.ts           # 模块导出
+│   ├── hooks/                     # 全局通用 hooks
+│   ├── lib/
+│   │   ├── api-client.ts          # axios 实例 & 拦截器
+│   │   ├── constants.ts           # 全局常量 & 枚举映射
+│   │   ├── permission.ts          # 权限判断工具
+│   │   └── utils.ts               # cn() 等工具函数
+│   ├── pages/                     # 页面组件（与路由一一对应）
+│   ├── routes/
+│   │   ├── index.tsx              # 路由配置
+│   │   └── menu.ts                # 侧边栏菜单数据
+│   ├── stores/                    # 全局状态管理（zustand）
+│   └── types/                     # 全局类型定义
+│       └── api.ts                 # 后端响应通用类型
+├── components.json                # shadcn/ui 配置
+├── tsconfig.json
+├── vite.config.ts
+├── package.json
+└── index.html
+```
+
+### 目录职责对比
+
+| 目录 | 职责 | 典型内容 |
+|---|---|---|
+| `components/ui/` | shadcn/ui 基础组件（CLI 生成） | Button、Input、Dialog、Table |
+| `components/shared/` | 基于 ui/ 封装的业务通用组件 | PageHeader、AuthGuard、DataTable |
+| `components/layouts/` | 布局组件 | AdminLayout（Sidebar + Header） |
+| `features/` | 按领域划分的业务模块 | user/、order/、product/ |
+| `pages/` | 页面级组件，与路由一一对应 | UserListPage、UserDetailPage |
+| `hooks/` | 全局通用 hooks | useDebounce、useMediaQuery |
+| `lib/` | 工具库 & API 客户端 & 常量 | axios 封装、枚举映射、cn()、权限工具 |
+| `stores/` | 全局状态 | useAuthStore |
+| `types/` | 全局类型 | 后端响应类型 |
+| `routes/` | 路由 & 菜单配置 | 路由表、菜单数据 |
+
+简而言之：**ui/ 管"原子组件"，shared/ 管"业务通用组件"，features/ 管"业务模块"，pages/ 管"页面组装"，lib/ 管"工具与通信"**。
+
+---
+
+## 二、分层依赖规范
+
+### 依赖方向图
+
+```text
+                    ┌──────────┐
+                    │  pages/  │  页面组装：组合 layout + feature 组件
+                    └────┬─────┘
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+   ┌────────────┐ ┌──────────────┐ ┌──────────────┐
+   │  layouts/  │ │  features/   │ │   routes/    │
+   │  布局组件   │ │ 业务组件+hooks│ │  路由 & 菜单  │
+   └────────────┘ └──────┬───────┘ └──────────────┘
+                         │
+                         ▼
+    ┌──────────────────────────────────────────────┐
+    │  shared/  │  hooks/  │  stores/  │   lib/    │
+    │ 通用业务   │ 通用hooks│ 全局状态   │ API/工具  │
+    └──────────────────────────────────────────────┘
+                         │
+                         ▼
+    ┌──────────────────────────────────────────────┐
+    │    components/ui/    │     types/             │  ← 底层，所有层可依赖
+    │  shadcn 基础组件      │    类型定义             │
+    └──────────────────────────────────────────────┘
+```
+
+### 依赖规则
+
+| 规则 | 说明 |
+|---|---|
+| pages → features, layouts | 页面组合业务模块和布局 |
+| features → shared, hooks, lib, ui/ | 业务模块使用通用组件、API 客户端和 shadcn 组件 |
+| **禁止** pages 直接调用 `apiClient` | 数据请求必须通过 feature hooks |
+| **禁止** features 之间相互 import | 共享逻辑提取到 hooks/ 或 shared/ |
+| **禁止** 手动修改 `components/ui/` | 使用 shadcn CLI 管理，需定制时通过 props 或包装组件 |
+
+---
+
+## 三、API 对接规范
+
+### 后端响应类型定义
+
+与后端统一响应格式 `{ code, message, data }` 严格对应：
+
+```typescript
+// src/types/api.ts
+
+export interface ApiResponse<T = unknown> {
+  code: number;
+  message: string;
+  data: T;
+}
+
+export interface PageResult<T> {
+  list: T[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface PageParams {
+  page: number;
+  size: number;
+}
+
+export class ApiError extends Error {
+  code: number;
+  constructor(code: number, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "ApiError";
+  }
+}
+```
+
+### API 客户端封装
+
+使用 **axios** 创建统一实例，拦截器处理 token 注入和错误码解析：
+
+```typescript
+// src/lib/api-client.ts
+
+import axios from "axios";
+import { toast } from "sonner";
+import { ApiResponse, ApiError } from "@/types/api";
+import { useAuthStore } from "@/stores/auth-store";
+
+const apiClient = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? "/api/v1",
+  timeout: 15000,
+});
+
+apiClient.interceptors.request.use((config) => {
+  const token = useAuthStore.getState().token;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => {
+    const body = response.data as ApiResponse;
+    if (body.code !== 0) {
+      toast.error(body.message);
+      return Promise.reject(new ApiError(body.code, body.message));
+    }
+    return response;
+  },
+  (error) => {
+    if (error.response?.status === 401) {
+      useAuthStore.getState().logout();
+      window.location.href = "/login";
+    }
+    const msg = error.response?.data?.message ?? "网络异常，请稍后重试";
+    toast.error(msg);
+    return Promise.reject(new ApiError(error.response?.status ?? 500, msg));
+  }
+);
+
+export default apiClient;
+```
+
+### Feature Hooks 标准写法
+
+每个 feature 的 hooks 包含**列表查询、详情查询、创建、更新、删除**五个标准操作：
+
+```typescript
+// src/features/user/hooks/use-users.ts
+
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import apiClient from "@/lib/api-client";
+import type { ApiResponse, PageResult } from "@/types/api";
+import type { User, UserSearchParams, CreateUserRequest } from "../types";
+
+const QUERY_KEY = "users";
+
+export function useUsers(params: UserSearchParams) {
+  return useQuery({
+    queryKey: [QUERY_KEY, params],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<PageResult<User>>>("/users", { params });
+      return data.data;
+    },
+  });
+}
+
+export function useCreateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: CreateUserRequest) => {
+      const { data } = await apiClient.post<ApiResponse<User>>("/users", req);
+      return data.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [QUERY_KEY] }),
+  });
+}
+```
+
+**规则**：
+- 每个 feature 一个 hooks 文件，包含该领域的全部 CRUD 操作
+- Query Key 统一为常量字符串，列表带参数、详情带 ID
+- mutation `onSuccess` 只做缓存失效，不做页面跳转
+- 页面只消费 hooks，不直接接触 `apiClient`
+
+---
+
+## 四、布局系统规范
+
+### 自定义 Sidebar + Header 布局
+
+使用 Tailwind CSS + shadcn/ui 组件构建自定义布局：
+
+```tsx
+// src/components/layouts/AdminLayout.tsx
+
+import { useState } from "react";
+import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { menuConfig } from "@/routes/menu";
+import { useAuthStore } from "@/stores/auth-store";
+import { ChevronDown, ChevronRight, LogOut, PanelLeftClose, PanelLeft } from "lucide-react";
+
+export function AdminLayout() {
+  const [collapsed, setCollapsed] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user, logout } = useAuthStore();
+
+  return (
+    <div className="flex h-screen">
+      {/* Sidebar */}
+      <aside className={cn(
+        "flex flex-col border-r bg-zinc-950 text-zinc-300 transition-all",
+        collapsed ? "w-16" : "w-56"
+      )}>
+        <div className="flex h-12 items-center justify-center border-b border-zinc-800 font-semibold text-white">
+          {collapsed ? "IT" : "IT 技能管理"}
+        </div>
+        <nav className="flex-1 overflow-y-auto py-2">
+          {/* 菜单渲染 */}
+        </nav>
+      </aside>
+
+      {/* Main */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex h-12 items-center justify-between border-b bg-white px-4">
+          <Button variant="ghost" size="icon" onClick={() => setCollapsed(!collapsed)}>
+            {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
+          <span className="text-sm">{user?.name}</span>
+        </header>
+        <main className="flex-1 overflow-y-auto bg-zinc-50 p-5">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+```
+
+### 菜单配置
+
+菜单数据为纯 TypeScript 对象，不含 JSX：
+
+```typescript
+// src/routes/menu.ts
+
+import { LayoutDashboard, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+export interface MenuItem {
+  key: string;
+  label: string;
+  icon?: LucideIcon;
+  path?: string;          // 叶子节点的路由路径
+  children?: MenuItem[];
+}
+
+export const menuConfig: MenuItem[] = [
+  { key: "dashboard", label: "工作台", icon: LayoutDashboard, path: "/" },
+  {
+    key: "user-group",
+    label: "用户管理",
+    icon: Users,
+    children: [
+      { key: "user-list", label: "用户列表", path: "/users" },
+    ],
+  },
+];
+```
+
+**规则**：
+- 菜单配置为纯数据，布局组件负责渲染
+- 叶子节点包含 `path`，用于导航和选中高亮
+- 父级节点不设 `path`，仅用于分组
+- 图标使用 `lucide-react`
+
+---
+
+## 五、权限控制规范
+
+### 路由级权限守卫
+
+使用 `AuthGuard` 组件包裹需要登录的路由。
+
+### 按钮级权限控制
+
+通过 `useAuthStore` 的 `hasPermission` 方法控制按钮显隐和禁用。
+
+**权限标识命名规则**：`{领域}:{操作}`，操作取值为 `view | create | update | delete`。
+
+---
+
+## 六、数据表格规范
+
+使用 **TanStack Table** + shadcn/ui `<Table>` 组件，实现可复用的数据表格。
+
+### 列定义标准写法
+
+```tsx
+// src/features/user/components/columns.tsx
+
+import { ColumnDef } from "@tanstack/react-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { User } from "../types";
+import { USER_STATUS_MAP, getLabelByValue } from "@/lib/constants";
+
+export function getUserColumns(opts: {
+  onEdit: (user: User) => void;
+  onDelete: (user: User) => void;
+  onToggleStatus: (user: User) => void;
+}): ColumnDef<User>[] {
+  return [
+    { accessorKey: "name", header: "姓名" },
+    { accessorKey: "email", header: "邮箱" },
+    { accessorKey: "phone", header: "手机号" },
+    {
+      accessorKey: "status",
+      header: "状态",
+      cell: ({ row }) => {
+        const status = row.getValue("status") as string;
+        const opt = USER_STATUS_MAP.find((o) => o.value === status);
+        return (
+          <Badge variant={status === "active" ? "default" : "destructive"}>
+            {opt?.label ?? status}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: "actions",
+      header: "操作",
+      cell: ({ row }) => (
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => opts.onEdit(row.original)}>
+            编辑
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => opts.onToggleStatus(row.original)}>
+            {row.original.status === "active" ? "禁用" : "启用"}
+          </Button>
+          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => opts.onDelete(row.original)}>
+            删除
+          </Button>
+        </div>
+      ),
+    },
+  ];
+}
+```
+
+### DataTable 通用组件
+
+封装 TanStack Table + shadcn Table + 分页，全局复用：
+
+```tsx
+// src/components/shared/DataTable.tsx
+
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+interface DataTableProps<T> {
+  columns: ColumnDef<T, unknown>[];
+  data: T[];
+  total?: number;
+  page: number;
+  pageSize: number;
+  loading?: boolean;
+  onPageChange: (page: number) => void;
+}
+
+export function DataTable<T>({ columns, data, total = 0, page, pageSize, loading, onPageChange }: DataTableProps<T>) {
+  const table = useReactTable({
+    data,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    pageCount: Math.ceil(total / pageSize),
+  });
+
+  const totalPages = Math.ceil(total / pageSize);
+
+  return (
+    <div>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((hg) => (
+              <TableRow key={hg.id}>
+                {hg.headers.map((h) => (
+                  <TableHead key={h.id}>
+                    {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow><TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">加载中...</TableCell></TableRow>
+            ) : table.getRowModel().rows.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow><TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">暂无数据</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="flex items-center justify-between py-4">
+        <span className="text-sm text-muted-foreground">共 {total} 条</span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-sm">{page} / {totalPages || 1}</span>
+          <Button variant="outline" size="sm" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+**规则**：
+- 列定义是纯函数，放在使用它的 feature 目录中
+- `DataTable` 是全局通用组件，放在 `shared/`
+- 分页使用 `manualPagination`，由后端驱动
+- 操作列超过 3 个按钮时使用 `DropdownMenu` 收起
+
+---
+
+## 七、CRUD 页面标准模式
+
+后台管理 80% 的页面遵循同一模式：**搜索栏 + 表格 + 新建/编辑弹窗 + 删除确认**。
+
+页面组件遵循**三段式**：获取数据 → 处理交互 → 渲染 UI。
+
+```tsx
+export function UserListPage() {
+  // ——— 搜索 & 分页状态 ———
+  const [searchParams, setSearchParams] = useState<UserSearchParams>({ page: 1, size: 20 });
+  const { data, isLoading } = useUsers(searchParams);
+
+  // ——— 弹窗状态 ———
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  // ——— 渲染 ———
+  return (
+    <>
+      <PageHeader title="用户管理" action={{ label: "新建用户", onClick: handleCreate }} />
+      <UserSearchForm onSearch={handleSearch} />
+      <DataTable columns={columns} data={data?.list ?? []} ... />
+      <UserFormDialog open={formOpen} onOpenChange={setFormOpen} user={editingUser} />
+    </>
+  );
+}
+```
+
+**核心约定**：
+- 搜索参数用 `useState` 管理，搜索时重置 `page` 为 1
+- 新建和编辑共用一个 `FormDialog`，通过 `editingUser` 是否为 `null` 区分
+- 删除通过 `AlertDialog` 做二次确认
+
+---
+
+## 八、表单规范
+
+使用 **React Hook Form** + **Zod** + shadcn/ui `<Form>` 实现类型安全的表单校验。
+
+### 弹窗表单标准写法
+
+```tsx
+// src/features/user/components/UserFormDialog.tsx
+
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { useCreateUser, useUpdateUser } from "../hooks/use-users";
+import type { User } from "../types";
+
+const userSchema = z.object({
+  name: z.string().min(1, "请输入姓名").max(50),
+  email: z.string().min(1, "请输入邮箱").email("邮箱格式不正确"),
+  phone: z.string().max(20).optional().or(z.literal("")),
+});
+
+type UserFormValues = z.infer<typeof userSchema>;
+
+interface UserFormDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  user: User | null;
+}
+
+export function UserFormDialog({ open, onOpenChange, user }: UserFormDialogProps) {
+  const isEdit = !!user;
+  const createUser = useCreateUser();
+  const updateUser = useUpdateUser();
+
+  const form = useForm<UserFormValues>({
+    resolver: zodResolver(userSchema),
+    defaultValues: { name: "", email: "", phone: "" },
+  });
+
+  useEffect(() => {
+    if (open && user) {
+      form.reset({ name: user.name, email: user.email, phone: user.phone });
+    } else if (open) {
+      form.reset({ name: "", email: "", phone: "" });
+    }
+  }, [open, user, form]);
+
+  async function onSubmit(values: UserFormValues) {
+    try {
+      if (isEdit) {
+        await updateUser.mutateAsync({ id: user!.id, ...values });
+        toast.success("更新成功");
+      } else {
+        await createUser.mutateAsync(values);
+        toast.success("创建成功");
+      }
+      onOpenChange(false);
+    } catch {
+      // api-client interceptor handles error display
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "编辑用户" : "新建用户"}</DialogTitle>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField control={form.control} name="name" render={({ field }) => (
+              <FormItem>
+                <FormLabel>姓名</FormLabel>
+                <FormControl><Input placeholder="请输入姓名" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="email" render={({ field }) => (
+              <FormItem>
+                <FormLabel>邮箱</FormLabel>
+                <FormControl><Input placeholder="请输入邮箱" disabled={isEdit} {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="phone" render={({ field }) => (
+              <FormItem>
+                <FormLabel>手机号</FormLabel>
+                <FormControl><Input placeholder="请输入手机号" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+              <Button type="submit" disabled={createUser.isPending || updateUser.isPending}>
+                {(createUser.isPending || updateUser.isPending) ? "提交中..." : "确定"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+**规则**：
+- 使用 `zodResolver` 把 Zod schema 注入 React Hook Form
+- Zod schema 的校验规则与后端 `binding` tag 保持一致
+- 弹窗打开时通过 `form.reset()` 回填或清空
+- 提交按钮通过 `isPending` 控制 loading 状态
+
+---
+
+## 九、枚举与状态映射规范
+
+所有枚举映射集中在 `lib/constants.ts`，使用统一结构：
+
+```typescript
+// src/lib/constants.ts
+
+export interface LabelOption {
+  label: string;
+  value: string;
+  variant?: "default" | "secondary" | "destructive" | "outline";
+}
+
+export const USER_STATUS_MAP: LabelOption[] = [
+  { label: "启用", value: "active", variant: "default" },
+  { label: "禁用", value: "inactive", variant: "destructive" },
+];
+
+export function getLabelByValue(options: LabelOption[], value: string): string {
+  return options.find((o) => o.value === value)?.label ?? value;
+}
+```
+
+可直接用于 `Badge`、`Select` 等场景。后端返回值为英文标识，前端负责映射中文。
+
+---
+
+## 十、状态管理规范
+
+| 状态类型 | 工具 | 示例 |
+|---|---|---|
+| 服务端数据 | TanStack Query | 用户列表、订单详情 |
+| 全局客户端状态 | Zustand | 登录信息、权限、主题 |
+| 页面级状态 | `useState` | 搜索参数、弹窗开关 |
+| URL 状态 | `useSearchParams` | 需持久化到 URL 的筛选条件 |
+
+- **禁止**用 Zustand 缓存 API 响应
+- 能用 `useState` 解决的，不用 Zustand
+
+---
+
+## 十一、样式规范
+
+### Tailwind CSS 优先
+
+所有样式使用 Tailwind CSS utility classes，不写自定义 CSS：
+
+```tsx
+<div className="flex items-center gap-2 rounded-md border p-4">
+  <span className="text-sm text-muted-foreground">共 100 条</span>
+</div>
+```
+
+### cn() 工具函数
+
+使用 `clsx` + `tailwind-merge` 的 `cn()` 处理条件类名：
+
+```typescript
+// src/lib/utils.ts
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+```
+
+### 样式规则
+
+| 规则 | 说明 |
+|---|---|
+| 优先使用 Tailwind utility | 不写自定义 CSS 类 |
+| 条件类名使用 `cn()` | 不用字符串拼接 |
+| 间距、颜色、圆角使用 CSS 变量 | 如 `bg-background`、`text-foreground` |
+| 响应式用 Tailwind 断点 | `sm:`、`md:`、`lg:` |
+
+### 禁止事项
+
+- **禁止**内联 `style` 属性
+- **禁止**使用 `!important`
+- **禁止**修改 shadcn/ui 组件的内部 class
+- **禁止**全局 CSS 中写业务样式
+
+---
+
+## 十二、错误处理与用户反馈
+
+使用 **sonner** 做全局 Toast 提示，**AlertDialog** 做危险操作确认：
+
+```tsx
+import { toast } from "sonner";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
+// 操作成功
+toast.success("创建成功");
+
+// 操作失败
+toast.error(error.message);
+
+// 删除确认
+<AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button variant="ghost" size="sm" className="text-destructive">删除</Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>确认删除</AlertDialogTitle>
+      <AlertDialogDescription>确定要删除用户「{user.name}」吗？此操作不可撤销。</AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>取消</AlertDialogCancel>
+      <AlertDialogAction onClick={handleDelete}>删除</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+| 场景 | 用法 |
+|---|---|
+| 操作成功 | `toast.success("创建成功")` |
+| 操作失败 | `toast.error(error.message)` |
+| 加载中 | `toast.loading("导出中...")` |
+| 危险操作确认 | `<AlertDialog>` |
+
+- **禁止**使用 `alert()` / `window.confirm()`
+- **禁止**用 `console.log` 向用户反馈
+- 所有 mutation 必须有错误处理
+
+---
+
+## 十三、注释规范
+
+与后端规范一致，注释说明"为什么"而非"做了什么"。
+
+- **禁止**复述代码的注释
+- **禁止**注释掉的废弃代码留在仓库中
+- **禁止** TODO/FIXME 不附带负责人和时间
+
+---
+
+## 十四、工程配置
+
+### 核心依赖
+
+| 用途 | 选型 |
+|---|---|
+| 构建工具 | Vite |
+| UI 组件 | shadcn/ui（基于 Radix UI） |
+| CSS 框架 | Tailwind CSS |
+| 图标 | lucide-react |
+| 路由 | React Router v7 |
+| 服务端状态 | TanStack Query v5 |
+| 数据表格 | TanStack Table |
+| 客户端状态 | Zustand |
+| HTTP | Axios |
+| 表单校验 | React Hook Form + Zod |
+| Toast | sonner |
+| 日期处理 | date-fns |
+| 工具函数 | clsx + tailwind-merge |
+
+### 路径别名
+
+`@/` 指向 `src/`，同时在 `tsconfig.json` 和 `vite.config.ts` 中配置。
+
+### 环境变量
+
+| 文件 | 用途 |
+|---|---|
+| `.env.development` | 本地开发 |
+| `.env.production` | 生产构建 |
+| `.env.local` | 本地覆盖（不提交） |
+
+所有变量通过 `import.meta.env.VITE_XXX` 访问，**禁止**使用 `process.env`。
+
+---
+
+## 十五、搜索表单规范
+
+使用 shadcn/ui `Input` + `Select` + `Button` 组合搜索栏：
+
+```tsx
+// src/features/user/components/UserSearchForm.tsx
+
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Search, RotateCcw } from "lucide-react";
+import { USER_STATUS_MAP } from "@/lib/constants";
+
+interface UserSearchFormProps {
+  onSearch: (values: { keyword?: string; status?: string }) => void;
+}
+
+export function UserSearchForm({ onSearch }: UserSearchFormProps) {
+  const [keyword, setKeyword] = useState("");
+  const [status, setStatus] = useState<string>("");
+
+  function handleSearch() {
+    onSearch({ keyword: keyword || undefined, status: status || undefined });
+  }
+
+  function handleReset() {
+    setKeyword("");
+    setStatus("");
+    onSearch({});
+  }
+
+  return (
+    <div className="mb-4 flex items-center gap-3">
+      <Input
+        placeholder="搜索姓名 / 邮箱"
+        value={keyword}
+        onChange={(e) => setKeyword(e.target.value)}
+        className="w-52"
+        onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+      />
+      <Select value={status} onValueChange={setStatus}>
+        <SelectTrigger className="w-28">
+          <SelectValue placeholder="全部状态" />
+        </SelectTrigger>
+        <SelectContent>
+          {USER_STATUS_MAP.map((o) => (
+            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button size="sm" onClick={handleSearch}>
+        <Search className="mr-1 h-4 w-4" />搜索
+      </Button>
+      <Button variant="outline" size="sm" onClick={handleReset}>
+        <RotateCcw className="mr-1 h-4 w-4" />重置
+      </Button>
+    </div>
+  );
+}
+```
+
+**规则**：
+- 搜索表单使用受控状态管理
+- 搜索时触发 `onSearch` 回调，由列表页重置分页
+- 重置按钮同时清空输入并触发空参数搜索
+- 支持回车触发搜索
