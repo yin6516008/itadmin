@@ -1,7 +1,7 @@
 ---
 description: 基于 Gin 框架的后端 API 项目架构规范，包含目录结构、分层依赖、API 设计、日志等约定。
 globs: backend/**
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Gin 后端 API 规范
@@ -679,15 +679,6 @@ func NewDatabase(dsn string) (*gorm.DB, error) {
     sqlDB.SetMaxOpenConns(25)
     sqlDB.SetMaxIdleConns(5)
     return db, nil
-}
-```
-
-```go
-// internal/infra/redis.go
-package infra
-
-func NewRedis(addr, password string, db int) *redis.Client {
-    return redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: db})
 }
 ```
 

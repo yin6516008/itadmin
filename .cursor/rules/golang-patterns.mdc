@@ -1,7 +1,7 @@
 ---
 description: Go 语言通用编码规范与最佳实践，适用于所有 Go 项目。
 globs: **/*.go
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Go 语言规范

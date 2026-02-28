@@ -1,7 +1,7 @@
 ---
 description: 基于 Vite + React + shadcn/ui 的中大型后台管理系统架构规范，包含目录结构、分层依赖、CRUD 模式、数据表格、权限控制等约定。
 globs: frontend/**
-alwaysApply: true
+alwaysApply: false
 ---
 
 # React 后台管理系统前端规范
